@@ -6,16 +6,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/nhooyr/color/log"
-	"github.com/satori/go.uuid"
 	"gopkg.in/gomail.v2"
 )
+
+var wg sync.WaitGroup
 
 func main() {
 	path := flag.String("c", "/usr/local/etc/systemd-monitor/config.json", "path to configuration file")
@@ -49,12 +50,20 @@ func main() {
 			continue
 		}
 		unit := l[i:j]
-		id := uuid.NewV4().String()
-		log.Printf("%s: %s failed", id, unit)
-		for _, e := range c.Emails {
-			log.Printf("%s: sending email to %s", id, e.Destination)
-			go e.send(id, unit)
+		log.Printf("%s failed", unit)
+		out, err := exec.Command("systemctl", "--full", "status", unit).Output()
+		if err != nil {
+			log.Print(err)
 		}
+		body := string(out)
+		subject := fmt.Sprintf("%s failed", unit)
+		var wg sync.WaitGroup
+		wg.Add(len(c.Emails))
+		for _, e := range c.Emails {
+			log.Printf("sending email to %s", e.Destination)
+			go e.send(subject, body)
+		}
+		wg.Wait()
 	}
 	if err = s.Err(); err != nil {
 		log.Fatal(err)
@@ -63,6 +72,8 @@ func main() {
 
 type config struct {
 	Emails []*email `json:"emails"`
+	From   string   `json:"from"`
+	Name   string   `json:"name"`
 }
 
 func (c *config) init(path string) {
@@ -70,25 +81,28 @@ func (c *config) init(path string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err = json.Unmarshal(f, c); err != nil {
-		log.Fatal(err)
-	}
-	for _, e := range c.Emails {
-		e.init()
-	}
-}
-
-var (
-	user = os.Getenv("USER")
-	from string
-)
-
-func init() {
-	hostname, err := os.Hostname()
+	err = json.Unmarshal(f, c)
 	if err != nil {
 		log.Fatal(err)
 	}
-	from = user + "@" + hostname
+	if c.From == "" {
+		var hostname string
+		hostname, err = os.Hostname()
+		if err != nil {
+			log.Fatal(err)
+		}
+		user := os.Getenv("USER")
+		c.From = user + "@" + hostname
+		if c.Name == "" {
+			c.Name = user
+		}
+	} else if c.Name == "" {
+		c.Name = os.Getenv("USER")
+	}
+	from := (&gomail.Message{}).FormatAddress(c.From, c.Name)
+	for _, e := range c.Emails {
+		e.init(from)
+	}
 }
 
 type email struct {
@@ -100,16 +114,25 @@ type email struct {
 	InsecureSkipVerify bool   `json:"insecureSkipVerify"`
 	Destination        string `json:"destination"`
 	Backup             *email `json:"backup"`
+	m                  *gomail.Message
 	d                  *gomail.Dialer
 }
 
-func (e *email) init() {
+func (e *email) init(from string) {
 	e.d = new(gomail.Dialer)
 	if e.Destination == "" {
-		log.Fatalf("empty Destination: %+v", e)
+		b, err := json.Marshal(e)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Fatalf("empty Destination: %s", b)
 	}
 	if e.Host == "" {
-		log.Fatalf("empty Host: %+v", e)
+		b, err := json.Marshal(e)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Fatalf("empty Host: %s", b)
 	}
 	e.d.Host = e.Host
 	e.d.Port = e.Port
@@ -118,45 +141,26 @@ func (e *email) init() {
 	if e.InsecureSkipVerify {
 		e.d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
+	e.m = gomail.NewMessage()
+	e.m.SetHeader("From", from)
+	e.m.SetHeader("To", (&gomail.Message{}).FormatAddress(e.Destination, e.Name))
 	if e.Backup != nil {
-		e.Backup.init()
+		e.Backup.init(from)
 	}
 }
 
-func (e *email) send(id string, unit string) {
-	if err := e.d.DialAndSend(e.message(unit)); err != nil {
-		log.Printf("%s: error when sending to %s: %s", id, e.Destination, err)
+func (e *email) send(subject, body string) {
+	e.m.SetHeader("Subject", subject)
+	e.m.SetBody("text/plain; charset=UTF-8", body)
+	if err := e.d.DialAndSend(e.m); err != nil {
+		log.Print(err)
 		if e.Backup != nil {
-			log.Printf("%s: sending email to backup of %s, %s", id, e.Destination, e.Backup.Destination)
-			e.Backup.send(id, unit)
+			log.Printf("attempting to send to backup %s", e.Backup.Destination)
+			e.Backup.send(subject, body)
+			return
 		}
 	} else {
-		log.Printf("%s: sent email to %s", id, e.Destination)
+		log.Printf("sent email to %s", e.Destination)
 	}
-}
-
-func (e *email) message(unit string) *gomail.Message {
-	return gomail.NewMessage(func(m *gomail.Message) {
-		m.SetHeader("From", m.FormatAddress(from, user))
-		m.SetHeader("To", m.FormatAddress(e.Destination, e.Name))
-		m.SetHeader("Subject", fmt.Sprintf("%s failed", unit))
-		m.AddAlternativeWriter("text/plain; charset=UTF-8", func(w io.Writer) error {
-			cmd := exec.Command("systemctl", "--full", "status", unit)
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
-				log.Print(err)
-				return nil
-			}
-			err = cmd.Start()
-			if err != nil {
-				log.Print(err)
-				return nil
-			}
-			_, err = io.Copy(w, stdout)
-			if err != nil {
-				log.Print(err)
-			}
-			return nil
-		})
-	})
+	wg.Done()
 }
