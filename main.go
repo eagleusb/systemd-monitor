@@ -35,8 +35,8 @@ func main() {
 	for i := 0; i < c.Workers; i++ {
 		go c.worker()
 	}
-
 	log.Print("initialized")
+
 	s := bufio.NewScanner(w)
 	for s.Scan() {
 		l := s.Text()
@@ -47,6 +47,10 @@ func main() {
 		}
 		i += 3
 		j := strings.Index(l, ": U")
+		if j == -1 {
+			log.Printf("line does not contain \": U\": %q", l)
+			continue
+		}
 		c.queue <- l[i:j]
 	}
 	if err = s.Err(); err != nil {
@@ -91,8 +95,9 @@ func init() {
 
 func (c *config) worker() {
 	for unit := range c.queue {
+		id := uuid.NewV4().String()
 		for _, e := range c.Emails {
-			e.send(uuid.NewV4().String(), unit)
+			go e.send(id, unit)
 		}
 	}
 }
@@ -129,16 +134,17 @@ func (e *email) init() {
 	}
 }
 
+// TODO id needs work
 func (e *email) send(id string, unit string) {
 	m := e.message(unit)
 	log.Printf("%s: sending email to %s for %s", id, e.Destination, unit)
 	if err := e.d.DialAndSend(m); err != nil {
-		log.Printf("%s: %s", id, err)
+		log.Printf("%s: error when sending to %s for %s: %s", id, e.Destination, unit, err)
 		if e.Backup != nil {
 			e.Backup.send(id, unit)
 		}
 	} else {
-		log.Printf("%s: completed", id)
+		log.Printf("%s: sent email to %s for %s", id, e.Destination, unit)
 	}
 }
 
