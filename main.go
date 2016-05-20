@@ -45,11 +45,13 @@ func main() {
 		}
 		unit := l[i:j]
 		log.Printf("%s failed", unit)
+		var body string
 		out, err := exec.Command("systemctl", "--full", "status", unit).Output()
-		if err != nil {
+		if err != nil && out == nil {
 			log.Print(err)
+		} else {
+			body = string(out)
 		}
-		body := string(out)
 		subject := fmt.Sprintf("%s failed", unit)
 		wg.Add(len(c.Emails))
 		for _, e := range c.Emails {

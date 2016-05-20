@@ -29,14 +29,14 @@ func (e *email) init(from string) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Fatalf("empty Destination\n%s", b)
+		log.Fatalf("empty destination\n%s", b)
 	}
 	if e.Host == "" {
 		b, err := json.Marshal(e)
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Fatalf("empty Host\n%s", b)
+		log.Fatalf("empty host\n%s", b)
 	}
 	e.d.Host = e.Host
 	e.d.Port = e.Port
