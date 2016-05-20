@@ -60,17 +60,6 @@ type config struct {
 	queue   chan string
 }
 
-type email struct {
-	Name               string `json:name`
-	Username           string `json:"username"`
-	Password           string `json:"password"`
-	Host               string `json:"host"`
-	Port               int    `json:"port"`
-	InsecureSkipVerify bool   `json:"insecureSkipVerify"`
-	Destination        string `json:"destination"`
-	d                  *gomail.Dialer
-}
-
 func (c *config) readFile(path string) {
 	f, err := ioutil.ReadFile(path)
 	if err != nil {
@@ -83,18 +72,7 @@ func (c *config) readFile(path string) {
 		log.Fatal("must be atleast one worker")
 	}
 	for _, e := range c.Emails {
-		e.d = &gomail.Dialer{TLSConfig: new(tls.Config)}
-		if e.Destination == "" {
-			log.Fatal("empty Destination: %+v", e)
-		}
-		if e.Host == "" {
-			log.Fatal("empty Host: %+v", e)
-		}
-		e.d.Host = e.Host
-		e.d.Port = e.Port
-		e.d.Username = e.Username
-		e.d.Password = e.Password
-		e.d.TLSConfig.InsecureSkipVerify = e.InsecureSkipVerify
+		e.init()
 	}
 }
 
@@ -114,20 +92,57 @@ func init() {
 func (c *config) worker() {
 	for unit := range c.queue {
 		for _, e := range c.Emails {
-			id := uuid.NewV4()
-			m := newMessage(unit, e)
-			log.Printf("%s: sending email to %s for %s", id, e.Destination, unit)
-			if err := e.d.DialAndSend(m); err != nil {
-				log.Printf("%s: %s", id, err)
-				continue
-			}
-			log.Printf("%s: completed", id)
-			break
+			e.send(uuid.NewV4(), unit)
 		}
 	}
 }
 
-func newMessage(unit string, e *email) *gomail.Message {
+type email struct {
+	Name               string `json:name`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	InsecureSkipVerify bool   `json:"insecureSkipVerify"`
+	Destination        string `json:"destination"`
+	Backup             *email `json:"backup"`
+	d                  *gomail.Dialer
+}
+
+func (e *email) init() {
+	e.d = new(gomail.Dialer)
+	if e.Destination == "" {
+		log.Fatal("empty Destination: %+v", e)
+	}
+	if e.Host == "" {
+		log.Fatal("empty Host: %+v", e)
+	}
+	e.d.Host = e.Host
+	e.d.Port = e.Port
+	e.d.Username = e.Username
+	e.d.Password = e.Password
+	if e.InsecureSkipVerify {
+		e.d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	if e.Backup != nil {
+		e.Backup.init()
+	}
+}
+
+func (e *email) send(id uuid.UUID, unit string) {
+	m := e.message(unit)
+	log.Printf("%s: sending email to %s for %s", id, e.Destination, unit)
+	if err := e.d.DialAndSend(m); err != nil {
+		log.Printf("%s: %s", id, err)
+		if e.Backup != nil {
+			e.Backup.send(id, unit)
+		}
+	} else {
+		log.Printf("%s: completed", id)
+	}
+}
+
+func (e *email) message(unit string) *gomail.Message {
 	return gomail.NewMessage(func(m *gomail.Message) {
 		m.SetHeader("From", m.FormatAddress(from, user))
 		m.SetHeader("To", m.FormatAddress(e.Destination, e.Name))
