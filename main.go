@@ -126,7 +126,7 @@ func (e *email) send(id string, unit string) {
 	if err := e.d.DialAndSend(e.message(unit)); err != nil {
 		log.Printf("%s: error when sending to %s: %s", id, e.Destination, err)
 		if e.Backup != nil {
-			log.Printf("%s: sending to backup %s for %s", e.Backup.Destination, e.Destination)
+			log.Printf("%s: sending to backup %s for %s", id, e.Backup.Destination, e.Destination)
 			e.Backup.send(id, unit)
 		}
 	} else {
