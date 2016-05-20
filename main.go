@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -48,8 +49,8 @@ func main() {
 			continue
 		}
 		unit := l[i:j]
-		log.Printf("%s failed", unit)
 		id := uuid.NewV4().String()
+		log.Printf("%s: %s failed", id, unit)
 		for _, e := range c.Emails {
 			log.Printf("%s: sending email to %s", id, e.Destination)
 			go e.send(id, unit)
@@ -138,7 +139,7 @@ func (e *email) message(unit string) *gomail.Message {
 	return gomail.NewMessage(func(m *gomail.Message) {
 		m.SetHeader("From", m.FormatAddress(from, user))
 		m.SetHeader("To", m.FormatAddress(e.Destination, e.Name))
-		m.SetHeader("Subject", unit+" failed")
+		m.SetHeader("Subject", fmt.Sprintf("%s failed", unit))
 		m.AddAlternativeWriter("text/plain; charset=UTF-8", func(w io.Writer) error {
 			cmd := exec.Command("systemctl", "--full", "status", unit)
 			stdout, err := cmd.StdoutPipe()
