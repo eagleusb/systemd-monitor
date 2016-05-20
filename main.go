@@ -22,7 +22,7 @@ func main() {
 	c := &config{queue: make(chan string), Workers: 2}
 	c.readFile(*path)
 
-	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail")
+	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail", "CODE_FUNCTION=unit_notify")
 	w, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
@@ -39,16 +39,15 @@ func main() {
 	log.Print("initialized")
 	s := bufio.NewScanner(w)
 	for s.Scan() {
-		if l := s.Text(); strings.HasSuffix(l, ": Unit entered failed state.") {
-			i := strings.Index(l, "]: ")
-			if i == -1 {
-				log.Printf("line does not contain \"]: \": %q", l)
-				continue
-			}
-			i += 3
-			j := strings.Index(l, ": U")
-			c.queue <- l[i:j]
+		l := s.Text()
+		i := strings.Index(l, "]: ")
+		if i == -1 {
+			log.Printf("line does not contain \"]: \": %q", l)
+			continue
 		}
+		i += 3
+		j := strings.Index(l, ": U")
+		c.queue <- l[i:j]
 	}
 	if err = s.Err(); err != nil {
 		log.Fatal(err)
