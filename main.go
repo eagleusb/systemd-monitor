@@ -19,8 +19,8 @@ import (
 func main() {
 	path := flag.String("c", "/usr/local/etc/systemd-monitor/config.json", "path to configuration file")
 	flag.Parse()
-	c := &config{queue: make(chan string), Workers: 2}
-	c.readFile(*path)
+	c := new(config)
+	c.init(*path)
 
 	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail", "CODE_FUNCTION=unit_notify")
 	w, err := cmd.StdoutPipe()
@@ -31,13 +31,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	for i := 0; i < c.Workers; i++ {
-		go c.worker()
-	}
+	s := bufio.NewScanner(w)
 	log.Print("initialized")
 
-	s := bufio.NewScanner(w)
 	for s.Scan() {
 		l := s.Text()
 		i := strings.Index(l, "]: ")
@@ -51,7 +47,13 @@ func main() {
 			log.Printf("line does not contain \": U\": %q", l)
 			continue
 		}
-		c.queue <- l[i:j]
+		unit := l[i:j]
+		log.Printf("%s failed", unit)
+		id := uuid.NewV4().String()
+		for _, e := range c.Emails {
+			log.Printf("%s: sending email to %s", id, e.Destination)
+			go e.send(id, unit)
+		}
 	}
 	if err = s.Err(); err != nil {
 		log.Fatal(err)
@@ -59,21 +61,16 @@ func main() {
 }
 
 type config struct {
-	Emails  []*email `json:"emails"`
-	Workers int      `json:"workers"`
-	queue   chan string
+	Emails []*email `json:"emails"`
 }
 
-func (c *config) readFile(path string) {
+func (c *config) init(path string) {
 	f, err := ioutil.ReadFile(path)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if err = json.Unmarshal(f, c); err != nil {
 		log.Fatal(err)
-	}
-	if c.Workers < 1 {
-		log.Fatal("must be atleast one worker")
 	}
 	for _, e := range c.Emails {
 		e.init()
@@ -93,17 +90,8 @@ func init() {
 	from = user + "@" + hostname
 }
 
-func (c *config) worker() {
-	for unit := range c.queue {
-		id := uuid.NewV4().String()
-		for _, e := range c.Emails {
-			go e.send(id, unit)
-		}
-	}
-}
-
 type email struct {
-	Name               string `json:name`
+	Name               string `json:"name"`
 	Username           string `json:"username"`
 	Password           string `json:"password"`
 	Host               string `json:"host"`
@@ -117,10 +105,10 @@ type email struct {
 func (e *email) init() {
 	e.d = new(gomail.Dialer)
 	if e.Destination == "" {
-		log.Fatal("empty Destination: %+v", e)
+		log.Fatalf("empty Destination: %+v", e)
 	}
 	if e.Host == "" {
-		log.Fatal("empty Host: %+v", e)
+		log.Fatalf("empty Host: %+v", e)
 	}
 	e.d.Host = e.Host
 	e.d.Port = e.Port
@@ -134,17 +122,15 @@ func (e *email) init() {
 	}
 }
 
-// TODO id needs work
 func (e *email) send(id string, unit string) {
-	m := e.message(unit)
-	log.Printf("%s: sending email to %s for %s", id, e.Destination, unit)
-	if err := e.d.DialAndSend(m); err != nil {
-		log.Printf("%s: error when sending to %s for %s: %s", id, e.Destination, unit, err)
+	if err := e.d.DialAndSend(e.message(unit)); err != nil {
+		log.Printf("%s: error when sending to %s: %s", id, e.Destination, err)
 		if e.Backup != nil {
+			log.Printf("%s: sending to backup %s for %s", e.Backup.Destination, e.Destination)
 			e.Backup.send(id, unit)
 		}
 	} else {
-		log.Printf("%s: sent email to %s for %s", id, e.Destination, unit)
+		log.Printf("%s: sent email to %s", id, e.Destination)
 	}
 }
 
