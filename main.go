@@ -92,7 +92,7 @@ func init() {
 func (c *config) worker() {
 	for unit := range c.queue {
 		for _, e := range c.Emails {
-			e.send(uuid.NewV4(), unit)
+			e.send(uuid.NewV4().String(), unit)
 		}
 	}
 }
@@ -129,7 +129,7 @@ func (e *email) init() {
 	}
 }
 
-func (e *email) send(id uuid.UUID, unit string) {
+func (e *email) send(id string, unit string) {
 	m := e.message(unit)
 	log.Printf("%s: sending email to %s for %s", id, e.Destination, unit)
 	if err := e.d.DialAndSend(m); err != nil {
