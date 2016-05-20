@@ -22,7 +22,7 @@ func main() {
 	c := &config{queue: make(chan string), Workers: 2}
 	c.readFile(*path)
 
-	cmd := exec.Command("journalctl", "-f", "-b", "-q")
+	cmd := exec.Command("journalctl", "-f", "-b", "-q", "-n", "999999999")
 	w, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
