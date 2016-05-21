@@ -10,12 +10,11 @@ import (
 )
 
 type email struct {
-	Name               string `json:"name"`
 	Username           string `json:"username"`
 	Password           string `json:"password"`
 	Host               string `json:"host"`
 	Port               int    `json:"port"`
-	InsecureSkipVerify bool   `json:"insecureSkipVerify"`
+	Name               string `json:"name"`
 	Destination        string `json:"destination"`
 	Backup             *email `json:"backup"`
 	m                  *gomail.Message
@@ -42,9 +41,6 @@ func (e *email) init(from string) {
 	e.d.Port = e.Port
 	e.d.Username = e.Username
 	e.d.Password = e.Password
-	if e.InsecureSkipVerify {
-		e.d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-	}
 	e.m = gomail.NewMessage()
 	e.m.SetHeader("From", from)
 	e.m.SetHeader("To", (&gomail.Message{}).FormatAddress(e.Destination, e.Name))
