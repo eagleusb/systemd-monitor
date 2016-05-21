@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/tls"
 	"encoding/json"
 
 	"github.com/nhooyr/color/log"
@@ -10,15 +9,15 @@ import (
 )
 
 type email struct {
-	Username           string `json:"username"`
-	Password           string `json:"password"`
-	Host               string `json:"host"`
-	Port               int    `json:"port"`
-	Name               string `json:"name"`
-	Destination        string `json:"destination"`
-	Backup             *email `json:"backup"`
-	m                  *gomail.Message
-	d                  *gomail.Dialer
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Name        string `json:"name"`
+	Destination string `json:"destination"`
+	Backup      *email `json:"backup"`
+	m           *gomail.Message
+	d           *gomail.Dialer
 }
 
 func (e *email) init(from string) {
