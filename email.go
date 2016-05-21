@@ -1,57 +1,35 @@
 package main
 
 import (
-	"encoding/json"
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/smtp"
 
 	"github.com/nhooyr/color/log"
-
-	"gopkg.in/gomail.v2"
 )
 
-type email struct {
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Name        string `json:"name"`
-	Destination string `json:"destination"`
-	Backup      *email `json:"backup"`
-	m           *gomail.Message
-	d           *gomail.Dialer
+type account struct {
+	username string
+	password string
+	to       []*destination
+	backup   *email
+	d        *smtp.Client
+	a        smtp.Auth
+	msg      []byte
 }
 
-func (e *email) init(from string) {
-	e.d = new(gomail.Dialer)
-	if e.Destination == "" {
-		b, err := json.Marshal(e)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Fatalf("empty destination\n%s", b)
-	}
-	if e.Host == "" {
-		b, err := json.Marshal(e)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Fatalf("empty host\n%s", b)
-	}
-	e.d.Host = e.Host
-	e.d.Port = e.Port
-	e.d.Username = e.Username
-	e.d.Password = e.Password
-	e.m = gomail.NewMessage()
-	e.m.SetHeader("From", from)
-	e.m.SetHeader("To", (&gomail.Message{}).FormatAddress(e.Destination, e.Name))
-	if e.Backup != nil {
-		e.Backup.init(from)
-	}
+type destination struct {
+	Name  string
+	Email string
 }
 
-func (e *email) send(subject, body string) {
-	e.m.SetHeader("Subject", subject)
-	e.m.SetBody("text/plain; charset=UTF-8", body)
-	if err := e.d.DialAndSend(e.m); err != nil {
+func (e *email) fatal(err error) {
+	log.Fatalf("%s\n%s", err, b)
+}
+
+func (e *email) send(subject string, body []byte) {
+	if err := e.sendMail(subject, body); err != nil {
 		log.Printf("error sending to %s: %s", e.Destination, err)
 		if e.Backup != nil {
 			log.Printf("sending to backup of %s: %s", e.Destination, e.Backup.Destination)
@@ -60,4 +38,34 @@ func (e *email) send(subject, body string) {
 		return
 	}
 	log.Printf("sent email to %s", e.Destination)
+}
+
+func (e *email) sendMail(subject string, body []byte) error {
+	msg := append(e.msg, subject...)
+	msg = append(e.msg, body...)
+	var ok bool
+	if ok, _ = e.d.Extension("STARTTLS"); ok {
+		if err = c.StartTLS(&tls.Config{ServerName: c.serverName}); err != nil {
+			return err
+		}
+	}
+	if ok, _ = e.d.Extension("AUTH"); ok && e.a != nil {
+		if err = e.d.Auth(e.a); err != nil {
+			return err
+		}
+	}
+	if err = e.d.Mail(e.Username); err != nil {
+		return err
+	}
+	for _, addr := range e.To {
+		if err = e.d.Rcpt(addr); err != nil {
+			return err
+		}
+	}
+	w, err := e.d.Data()
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(msg)
+	return err
 }

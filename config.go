@@ -1,31 +1,46 @@
 package main
 
 import (
-	"encoding/json"
-	"io/ioutil"
+	"fmt"
+	"net"
+	"net/smtp"
 
 	"github.com/nhooyr/color/log"
-
-	"gopkg.in/gomail.v2"
+	"github.com/pelletier/go-toml"
 )
 
-type config struct {
-	Name   string   `json:"name"`
-	From   string   `json:"from"`
-	Emails []*email `json:"emails"`
-}
+var accounts []*email
 
-func (c *config) init(path string) {
-	f, err := ioutil.ReadFile(path)
+func init(path string) {
+	tree, err := toml.LoadFile(path)
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = json.Unmarshal(f, c)
-	if err != nil {
-		log.Fatal(err)
-	}
-	from := (&gomail.Message{}).FormatAddress(c.From, c.Name)
 	for _, e := range c.Emails {
-		e.init(from)
+		if e.To == "" {
+			log.Fatal("empty to")
+		}
+		if e.Addr == "" {
+			e.fatal("empty address")
+		}
+		var err error
+		e.d, err = smtp.Dial(e.Addr)
+		if err != nil {
+			e.fatal(err)
+		}
+		e.msg = []byte(fmt.Sprintf("From: %s <%s>\r\n", e.From, e.Username) +
+			fmt.Sprintf("To: %s <%s>\r\n", e.Name, e.To) +
+			"Subject: ")
+		host, _, err := net.SplitHostPort(e.Addr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = e.d.Auth(smtp.PlainAuth("", e.Username, e.Password, host))
+		if err != nil {
+			log.Fatal(err)
+		}
+		if e.Backup != nil {
+			e.Backup.init()
+		}
 	}
 }
