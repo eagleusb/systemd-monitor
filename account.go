@@ -19,8 +19,7 @@ type account struct {
 	addr         string
 	c            *smtp.Client
 	a            smtp.Auth
-	msg          []byte
-	mlen         int
+	msg          *message
 	destinations []string
 	last         time.Time
 	backup       *account
@@ -81,38 +80,24 @@ func (a *account) initMsg(tree *toml.TomlTree) {
 		log.Fatalf("%s: %q is not a table", pos(tree, "destinations"), "destinations")
 	}
 
-	a.msg = make([]byte, 0, 3000)
-	a.msg = append(a.msg, "From: "...)
-	if name := optional(tree, "name"); name == "" {
-		a.msg = append(a.msg, a.username...)
-	} else {
-		a.msg = append(a.msg, name...)
-		a.msg = append(a.msg, " <"...)
-		a.msg = append(a.msg, a.username...)
-		a.msg = append(a.msg, '>')
-	}
-	a.msg = append(a.msg, "\r\nContent-Type: text/plain; charset=UTF-8\r\nTo:"...)
+	a.msg = &message{buf: make([]byte, 0, 3000)}
+	a.msg.write("From: ")
+	a.msg.writeEmail(optional(tree, "name"), a.username)
+	a.msg.write("\r\nContent-Type: text/plain; charset=UTF-8\r\nTo:")
 	a.destinations = make([]string, len(trees))
 	for i, tree := range trees {
 		name := optional(tree, "name")
 		email := necessary(tree, "email")
 		a.destinations[i] = email
-		a.msg = append(a.msg, ' ')
-		if name == "" {
-			a.msg = append(a.msg, email...)
-		} else {
-			a.msg = append(a.msg, name...)
-			a.msg = append(a.msg, " <"...)
-			a.msg = append(a.msg, email...)
-			a.msg = append(a.msg, '>')
-		}
+		a.msg.writeByte(' ')
+		a.msg.writeEmail(name, email)
 		if i != len(trees)-1 {
-			a.msg = append(a.msg, ',')
+			a.msg.writeByte(',')
 		}
-		a.msg = append(a.msg, "\r\n"...)
+		a.msg.write("\r\n")
 	}
-	a.msg = append(a.msg, "Subject: "...)
-	a.mlen = len(a.msg)
+	a.msg.write("Subject: ")
+	a.msg.initialized()
 
 }
 
@@ -177,10 +162,10 @@ func (a *account) mail(subject string, body []byte) (err error) {
 			return
 		}
 	}
-	a.msg = a.msg[:a.mlen]
-	a.msg = append(a.msg, subject...)
-	a.msg = append(a.msg, "\r\n\r\n"...)
-	a.msg = append(a.msg, body...)
+	defer a.msg.reset()
+	a.msg.write(subject)
+	a.msg.write("\r\n\r\n")
+	a.msg.writeBytes(body)
 	if err = a.c.Mail(a.username); err != nil {
 		return
 	}
@@ -193,9 +178,45 @@ func (a *account) mail(subject string, body []byte) (err error) {
 	if err != nil {
 		return
 	}
-	_, err = w.Write(a.msg)
+	_, err = w.Write(a.msg.buf)
 	if err != nil {
 		return
 	}
 	return w.Close()
+}
+
+type message struct {
+	buf []byte
+	len int // minimum length
+}
+
+func (m *message) writeBytes(p []byte) {
+	m.buf = append(m.buf, p...)
+}
+
+func (m *message) writeEmail(name, email string) {
+	if name == "" {
+		m.write(email)
+	} else {
+		m.write(name)
+		m.write(" <")
+		m.write(email)
+		m.writeByte('>')
+	}
+}
+
+func (m *message) write(s string) {
+	m.buf = append(m.buf, s...)
+}
+
+func (m *message) writeByte(b byte) {
+	m.buf = append(m.buf, b)
+}
+
+func (m *message) initialized() {
+	m.len = len(m.buf)
+}
+
+func (m *message) reset() {
+	m.buf = m.buf[:m.len]
 }
