@@ -21,11 +21,11 @@ func main() {
 
 	v := tree.Get("accounts")
 	if v == nil {
-		log.Fatalf("%s: no %q table of arrays", pos(tree, ""), "accounts")
+		log.Fatalf("%s: missing %q table of arrays", pos(tree, ""), "accounts")
 	}
 	trees, ok := v.([]*toml.TomlTree)
 	if !ok {
-		log.Fatalf("%s: %q is not an array of tables", pos(tree, "accounts"), "accounts")
+		log.Fatalf("%s: wrong type, should be an array of tables", pos(tree, "accounts"))
 	}
 
 	accounts := make([]*account, len(trees))
@@ -36,7 +36,7 @@ func main() {
 	}
 
 	s := journal()
-	log.Print("initialized")
+	log.Print("tailing journal")
 
 	tail(s, accounts)
 }
@@ -47,22 +47,22 @@ func tail(s *bufio.Scanner, accounts []*account) {
 		l := s.Text()
 		i := strings.Index(l, "]: ")
 		if i == -1 {
-			log.Printf("line does not contain \"]: \": %q", l)
+			log.Printf("error extracting unit name, journal line does not contain \"]: \": %q", l)
 			continue
 		}
 		i += 3
 		j := strings.Index(l, ": U")
 		if j == -1 {
-			log.Printf("line does not contain \": U\": %q", l)
+			log.Printf("error extracting unit name, journal line does not contain \": U\": %q", l)
 			continue
 		}
 		unit := l[i:j]
-		log.Printf("%s failed", unit)
+		subject := unit + " failed"
+		log.Print(subject)
 		out, err := exec.Command("systemctl", "--full", "status", unit).Output()
 		if err != nil && out == nil {
-			log.Print(err)
+			log.Println("error getting unit status:", err)
 		}
-		subject := unit + " failed"
 		wg.Add(len(accounts))
 		for _, a := range accounts {
 			go func(a *account) {
@@ -73,7 +73,7 @@ func tail(s *bufio.Scanner, accounts []*account) {
 		wg.Wait()
 	}
 	if err := s.Err(); err != nil {
-		log.Fatal(err)
+		log.Fatalln("fatal error", err)
 	}
 }
 
@@ -81,11 +81,11 @@ func journal() *bufio.Scanner {
 	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail", "CODE_FUNCTION=unit_notify")
 	w, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln("error tailing journal", err)
 	}
 	err = cmd.Start()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln("error tailing journal", err)
 	}
 	return bufio.NewScanner(w)
 

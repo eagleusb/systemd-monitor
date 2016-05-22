@@ -25,22 +25,22 @@ type account struct {
 }
 
 func (a *account) init(tree *toml.TomlTree) {
-	a.username = necessary(tree, "username")
 	a.addr = necessary(tree, "addr")
-	password := optional(tree, "password")
-
 	var err error
 	a.host, _, err = net.SplitHostPort(a.addr)
 	if err != nil {
 		log.Fatalf("%s: addr is not in %q format", pos(tree, "addr"), "host:port")
 	}
+
+	a.username = necessary(tree, "username")
+	password := optional(tree, "password")
 	a.a = smtp.PlainAuth("", a.username, password, a.host)
 	if err = a.dial(); err != nil {
 		log.Print(err)
 	}
 	v := tree.Get("destinations")
 	if v == nil {
-		log.Fatalf("%s: no %q table of arrays", pos(tree, ""), "destinations")
+		log.Fatalf("%s: missing %q table of arrays", pos(tree, ""), "destinations")
 	}
 	trees, ok := v.([]*toml.TomlTree)
 	if !ok {
@@ -126,10 +126,7 @@ func (a *account) send(subject string, body []byte) {
 
 func (a *account) mail(subject string, body []byte) (err error) {
 	if a.c == nil {
-		log.Printf("%s: reconnecting", a.username)
-		if err = a.dial(); err != nil {
-			return
-		}
+		return io.EOF
 	}
 	defer a.msg.reset()
 	a.msg.write(subject)

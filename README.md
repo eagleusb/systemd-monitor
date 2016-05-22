@@ -1,6 +1,6 @@
 # systemd-monitor
 
-systemd-monitor tails the journal log for unit failures and then sends out notifications.
+systemd-monitor tails the journal log for unit failures and sends out email notifications.
 
 ## Install
 ```zsh
