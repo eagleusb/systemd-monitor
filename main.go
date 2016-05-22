@@ -42,6 +42,9 @@ func main() {
 	monitor()
 }
 
+var lf = []byte{'\n'}
+var crlf = []byte{'\r', '\n'}
+
 func monitor() {
 	conn, err := dbus.New()
 	if err != nil {
@@ -53,6 +56,7 @@ func monitor() {
 		broadcast("error subscribing to systemd dbus", []byte(err.Error()))
 		log.Fatal(err)
 	}
+	log.Print("subscribed to systemd dbus")
 	eventChan, errChan := conn.SubscribeUnits(time.Second)
 	for {
 		select {
@@ -76,9 +80,6 @@ func monitor() {
 		}
 	}
 }
-
-var lf = []byte{'\n'}
-var crlf = []byte{'\r', '\n'}
 
 var wg sync.WaitGroup
 
