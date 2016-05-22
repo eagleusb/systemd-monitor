@@ -138,8 +138,6 @@ func main() {
 		accounts[i] = new(account)
 		accounts[i].init(tree)
 	}
-	log.Printf("%q", accounts[0].msg)
-	return
 
 	s := journal()
 	log.Print("initialized")
