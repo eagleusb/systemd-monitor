@@ -37,7 +37,7 @@ func (a *account) init(tree *toml.TomlTree) {
 	password := optional(tree, "password")
 	a.a = smtp.PlainAuth("", a.username, password, a.host)
 	if err = a.dial(); err != nil {
-		log.Print(err)
+		log.Printf("%s: error connecting to %s: %s", pos(tree, "addr"), a.addr, err)
 	}
 	v := tree.Get("destinations")
 	if v == nil {
@@ -115,10 +115,10 @@ func (a *account) send(subject string, body []byte) {
 				return
 			}
 		}
-		log.Printf("%s: error: %s", a.username, err)
+		log.Printf("%s: error sending: %s", a.username, err)
 		if a.backup != nil {
 			log.Printf("%s: falling back to: %s", a.username, a.backup.username)
-			body = append(body, fmt.Sprintf("\r\nnote: there was an error sending to %s, sending to backup %s instead", a.username, a.backup.username)...)
+			body = append(body, fmt.Sprintf("\r\nnote: error sending to %s, sending to backup %s instead", a.username, a.backup.username)...)
 			a.backup.send(subject, body)
 		}
 		return

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"os/exec"
 	"sync"
 	"time"
@@ -37,7 +38,7 @@ func main() {
 		accounts[i] = new(account)
 		accounts[i].init(tree)
 	}
-	log.Print("initialized")
+	log.Print("initialized accounts")
 
 	monitor()
 }
@@ -67,10 +68,11 @@ func monitor() {
 					log.Print(subject)
 					out, err := exec.Command("systemctl", "--full", "status", service).Output()
 					if err != nil && out == nil {
-						broadcast("error getting unit status", []byte(err.Error()))
 						log.Println("error getting unit status:", err)
+						out = []byte(fmt.Sprintf("error getting unit status: %s\r\n", err.Error()))
+					} else {
+						out = bytes.Replace(out, lf, crlf, -1)
 					}
-					out = bytes.Replace(out, lf, crlf, -1)
 					broadcast(subject, out)
 				}
 			}
