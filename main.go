@@ -41,12 +41,14 @@ func main() {
 	tail(s, accounts)
 }
 
+// TODO regexps
 func tail(s *bufio.Scanner, accounts []*account) {
 	var wg sync.WaitGroup
 	for s.Scan() {
 		l := s.Text()
 		i := strings.Index(l, "]: ")
 		if i == -1 {
+			// TODO should send me an email
 			log.Printf("error extracting unit name, journal line does not contain \"]: \": %q", l)
 			continue
 		}
