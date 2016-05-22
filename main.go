@@ -116,7 +116,7 @@ func pos(tree *toml.TomlTree, key string) string {
 }
 
 func main() {
-	path := flag.String("c", "/usr/local/etc/systemd-monitor/config.json", "path to configuration file")
+	path := flag.String("c", "/usr/local/etc/systemd-monitor/config.toml", "path to configuration file")
 	flag.Parse()
 	tree, err := toml.LoadFile(*path)
 	if err != nil {
