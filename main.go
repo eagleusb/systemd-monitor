@@ -1,15 +1,18 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"flag"
 	"os/exec"
-	"strings"
 	"sync"
+	"time"
 
+	"github.com/coreos/go-systemd/dbus"
 	"github.com/nhooyr/color/log"
 	"github.com/pelletier/go-toml"
 )
+
+var accounts []*account
 
 func main() {
 	path := flag.String("c", "/usr/local/etc/systemd-monitor/config.toml", "path to configuration file")
@@ -28,67 +31,64 @@ func main() {
 		log.Fatalf("%s: type of %q is incorrect, should be array of tables", pos(tree, "accounts"), "accounts")
 	}
 
-	accounts := make([]*account, len(trees))
+	accounts = make([]*account, len(trees))
 	var i int
 	for i, tree = range trees {
 		accounts[i] = new(account)
 		accounts[i].init(tree)
 	}
+	log.Print("initialized")
 
-	s := journal()
-	log.Print("tailing journal")
-
-	tail(s, accounts)
+	monitor()
 }
 
-// TODO regexps
-func tail(s *bufio.Scanner, accounts []*account) {
-	var wg sync.WaitGroup
-	for s.Scan() {
-		l := s.Text()
-		i := strings.Index(l, "]: ")
-		if i == -1 {
-			// TODO should send me an email
-			log.Printf("error extracting unit name, journal line does not contain \"]: \": %q", l)
-			continue
-		}
-		i += 3
-		j := strings.Index(l, ": U")
-		if j == -1 {
-			log.Printf("error extracting unit name, journal line does not contain \": U\": %q", l)
-			continue
-		}
-		unit := l[i:j]
-		subject := unit + " failed"
-		log.Print(subject)
-		out, err := exec.Command("systemctl", "--full", "status", unit).Output()
-		if err != nil && out == nil {
-			log.Println("error getting unit status:", err)
-		}
-		wg.Add(len(accounts))
-		for _, a := range accounts {
-			go func(a *account) {
-				a.send(subject, out)
-				wg.Done()
-			}(a)
-		}
-		wg.Wait()
+func monitor() {
+	conn, err := dbus.New()
+	if err != nil {
+		broadcast("error connecting to systemd dbus", []byte(err.Error()))
+		log.Fatal(err)
 	}
-	if err := s.Err(); err != nil {
-		log.Fatalln("fatal error", err)
+	err = conn.Subscribe()
+	if err != nil {
+		broadcast("error subscribing to systemd dbus", []byte(err.Error()))
+		log.Fatal(err)
+	}
+	eventChan, errChan := conn.SubscribeUnits(time.Second)
+	for {
+		select {
+		case events := <-eventChan:
+			for service, event := range events {
+				if event.ActiveState == "failed" {
+					subject := service + " failed"
+					log.Print(subject)
+					out, err := exec.Command("systemctl", "--full", "status", service).Output()
+					if err != nil && out == nil {
+						broadcast("error getting unit status", []byte(err.Error()))
+						log.Println("error getting unit status:", err)
+					}
+					out = bytes.Replace(out, lf, crlf, -1)
+					broadcast(subject, out)
+				}
+			}
+		case err := <-errChan:
+			broadcast("error receiving event from systemd dbus", []byte(err.Error()))
+			log.Fatal(err)
+		}
 	}
 }
 
-func journal() *bufio.Scanner {
-	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail", "CODE_FUNCTION=unit_notify")
-	w, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Fatalln("error tailing journal", err)
-	}
-	err = cmd.Start()
-	if err != nil {
-		log.Fatalln("error tailing journal", err)
-	}
-	return bufio.NewScanner(w)
+var lf = []byte{'\n'}
+var crlf = []byte{'\r', '\n'}
 
+var wg sync.WaitGroup
+
+func broadcast(subject string, body []byte) {
+	wg.Add(len(accounts))
+	for _, a := range accounts {
+		go func(a *account) {
+			a.send(subject, body)
+			wg.Done()
+		}(a)
+	}
+	wg.Wait()
 }

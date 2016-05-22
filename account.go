@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/smtp"
@@ -105,7 +106,7 @@ func (a *account) dial() (err error) {
 }
 
 func (a *account) send(subject string, body []byte) {
-	log.Printf("%s: sending emails", a.username)
+	log.Printf("%s: sending email(s)", a.username)
 	if err := a.mail(subject, body); err != nil {
 		if err == io.EOF {
 			log.Printf("%s: reconnecting", a.username)
@@ -117,11 +118,12 @@ func (a *account) send(subject string, body []byte) {
 		log.Printf("%s: error: %s", a.username, err)
 		if a.backup != nil {
 			log.Printf("%s: falling back to: %s", a.username, a.backup.username)
+			body = append(body, fmt.Sprintf("\r\nnote: there was an error sending to %s, sending to backup %s instead", a.username, a.backup.username)...)
 			a.backup.send(subject, body)
 		}
 		return
 	}
-	log.Printf("%s: sent emails", a.username)
+	log.Printf("%s: sent email(s)", a.username)
 }
 
 func (a *account) mail(subject string, body []byte) (err error) {
