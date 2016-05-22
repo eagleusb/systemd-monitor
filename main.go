@@ -62,6 +62,17 @@ func (a *account) init(tree *toml.TomlTree) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	var ok bool
+	if ok, _ = a.c.Extension("STARTTLS"); ok {
+		if err = a.c.StartTLS(&tls.Config{ServerName: a.host}); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if ok, _ = a.c.Extension("AUTH"); ok && a.a != nil {
+		if err = a.c.Auth(a.a); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	v := tree.Get("destinations")
 	if v == nil {
@@ -71,12 +82,13 @@ func (a *account) init(tree *toml.TomlTree) {
 	if !ok {
 		log.Fatalf("%s: %q is not a table", pos(tree, "destinations"), "destinations")
 	}
+	a.msg = make([]byte, 0, 3000)
 
 	a.msg = []byte("From: ")
 	if name == "" {
 		a.msg = append(a.msg, a.username...)
 	} else {
-		a.msg = []byte(fmt.Sprintf("%s <%s>", name, a.username))
+		a.msg = append(a.msg, fmt.Sprintf("%s <%s>", name, a.username)...)
 	}
 	a.msg = append(a.msg, "\r\nContent-Type: text/plain; charset=UTF-8\r\nTo:"...)
 	a.destinations = make([]string, len(trees))
@@ -210,19 +222,9 @@ func (a *account) send(subject string, body []byte) {
 func (a *account) sendMail(subject string, body []byte) error {
 	a.msg = a.msg[:a.mlen]
 	a.msg = append(a.msg, subject...)
+	a.msg = append(a.msg, "\r\n\r\n"...)
 	a.msg = append(a.msg, body...)
-	var ok bool
 	var err error
-	if ok, _ = a.c.Extension("STARTTLS"); ok {
-		if err = a.c.StartTLS(&tls.Config{ServerName: a.host}); err != nil {
-			return err
-		}
-	}
-	if ok, _ = a.c.Extension("AUTH"); ok && a.a != nil {
-		if err = a.c.Auth(a.a); err != nil {
-			return err
-		}
-	}
 	if err = a.c.Mail(a.username); err != nil {
 		return err
 	}
