@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/smtp"
 	"time"
 
+	"github.com/nhooyr/color/log"
 	"github.com/pelletier/go-toml"
 )
 
