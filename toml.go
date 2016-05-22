@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/nhooyr/color/log"
 	"github.com/pelletier/go-toml"
 )
@@ -29,5 +27,5 @@ func optional(tree *toml.TomlTree, key string) string {
 
 func pos(tree *toml.TomlTree, key string) string {
 	p := tree.GetPosition(key)
-	return fmt.Sprintf("(pos %d:%d)", p.Line, p.Col)
+	return p.String()
 }
