@@ -44,7 +44,7 @@ func (a *account) init(tree *toml.TomlTree) {
 	}
 	trees, ok := v.([]*toml.TomlTree)
 	if !ok {
-		log.Fatalf("%s: %q is of wrong type, should be a table of arrays", pos(tree, "destinations"), "destinations")
+		log.Fatalf("%s: type of %q is incorrect, should be table of arrays", pos(tree, "destinations"), "destinations")
 	}
 
 	a.msg = &message{buf: make([]byte, 0, 3000)}
@@ -72,7 +72,7 @@ func (a *account) init(tree *toml.TomlTree) {
 	}
 	tree, ok = v.(*toml.TomlTree)
 	if !ok {
-		log.Fatalf("%s: %q is of wrong type, should be a table", pos(tree, "backup"), "backup")
+		log.Fatalf("%s: type of %q is incorrect, should be table", pos(tree, "backup"), "backup")
 	}
 	a.backup = new(account)
 	a.backup.init(tree)

@@ -12,7 +12,7 @@ func necessary(tree *toml.TomlTree, key string) string {
 	}
 	s, ok := v.(string)
 	if !ok {
-		log.Fatalf("%s: %q is of wrong type, should be a string", pos(tree, key), key)
+		log.Fatalf("%s: type of %q is incorrect, should be string", pos(tree, key), key)
 	}
 	return s
 }
@@ -20,7 +20,7 @@ func necessary(tree *toml.TomlTree, key string) string {
 func optional(tree *toml.TomlTree, key string) string {
 	s, ok := tree.GetDefault(key, "").(string)
 	if !ok {
-		log.Fatalf("%s: %q is of wrong type, should be a string", pos(tree, key), key)
+		log.Fatalf("%s: type of %q is incorrect, should be string", pos(tree, key), key)
 	}
 	return s
 }

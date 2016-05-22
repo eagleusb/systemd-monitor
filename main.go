@@ -25,7 +25,7 @@ func main() {
 	}
 	trees, ok := v.([]*toml.TomlTree)
 	if !ok {
-		log.Fatalf("%s: %q is of wrong type, should be an array of tables", pos(tree, "accounts"), "accounts")
+		log.Fatalf("%s: type of %q is incorrect, should be array of tables", pos(tree, "accounts"), "accounts")
 	}
 
 	accounts := make([]*account, len(trees))
