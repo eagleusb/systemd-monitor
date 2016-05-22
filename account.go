@@ -2,11 +2,13 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/smtp"
+	"time"
 
 	"github.com/pelletier/go-toml"
 )
@@ -20,6 +22,7 @@ type account struct {
 	msg          []byte
 	mlen         int
 	destinations []string
+	last         time.Time
 	backup       *account
 }
 
@@ -43,7 +46,13 @@ func optional(tree *toml.TomlTree, key string) string {
 	return s
 }
 
+var errTimeout = errors.New("reconnection timeout")
+
 func (a *account) dial() (err error) {
+	if time.Since(a.last) < time.Second*30 {
+		return errTimeout
+	}
+	a.last = time.Now()
 	a.c, err = smtp.Dial(a.addr)
 	if err != nil {
 		return err
@@ -71,8 +80,8 @@ func (a *account) initMsg(tree *toml.TomlTree) {
 	if !ok {
 		log.Fatalf("%s: %q is not a table", pos(tree, "destinations"), "destinations")
 	}
-	a.msg = make([]byte, 0, 3000)
 
+	a.msg = make([]byte, 0, 3000)
 	a.msg = append(a.msg, "From: "...)
 	if name := optional(tree, "name"); name == "" {
 		a.msg = append(a.msg, a.username...)
@@ -92,7 +101,10 @@ func (a *account) initMsg(tree *toml.TomlTree) {
 		if name == "" {
 			a.msg = append(a.msg, email...)
 		} else {
-			a.msg = append(a.msg, fmt.Sprintf("%s <%s>", name, email)...)
+			a.msg = append(a.msg, name...)
+			a.msg = append(a.msg, " <"...)
+			a.msg = append(a.msg, email...)
+			a.msg = append(a.msg, '>')
 		}
 		if i != len(trees)-1 {
 			a.msg = append(a.msg, ',')
@@ -140,7 +152,7 @@ func pos(tree *toml.TomlTree, key string) string {
 
 func (a *account) send(subject string, body []byte) {
 	log.Printf("%s: sending emails", a.username)
-	if err := a.sendMail(subject, body); err != nil {
+	if err := a.mail(subject, body); err != nil {
 		if err == io.EOF {
 			log.Printf("%s: reconnecting", a.username)
 			if err = a.dial(); err == nil {
@@ -158,27 +170,32 @@ func (a *account) send(subject string, body []byte) {
 	log.Printf("%s: sent emails", a.username)
 }
 
-func (a *account) sendMail(subject string, body []byte) error {
+func (a *account) mail(subject string, body []byte) (err error) {
+	if a.c == nil {
+		log.Printf("%s: reconnecting", a.username)
+		if err = a.dial(); err != nil {
+			return
+		}
+	}
 	a.msg = a.msg[:a.mlen]
 	a.msg = append(a.msg, subject...)
 	a.msg = append(a.msg, "\r\n\r\n"...)
 	a.msg = append(a.msg, body...)
-	var err error
 	if err = a.c.Mail(a.username); err != nil {
-		return err
+		return
 	}
 	for _, addr := range a.destinations {
 		if err = a.c.Rcpt(addr); err != nil {
-			return err
+			return
 		}
 	}
 	w, err := a.c.Data()
 	if err != nil {
-		return err
+		return
 	}
 	_, err = w.Write(a.msg)
 	if err != nil {
-		return err
+		return
 	}
 	return w.Close()
 }
