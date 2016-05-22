@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"net"
@@ -16,10 +17,12 @@ import (
 
 type account struct {
 	username     string
+	host         string
 	c            *smtp.Client
 	a            smtp.Auth
 	msg          []byte
-	destinations []*destination
+	mlen         int
+	destinations []string
 	backup       *account
 }
 
@@ -49,11 +52,12 @@ func (a *account) init(tree *toml.TomlTree) {
 	addr := necessary(tree, "addr")
 	password := optional(tree, "password")
 
-	host, _, err := net.SplitHostPort(addr)
+	var err error
+	a.host, _, err = net.SplitHostPort(addr)
 	if err != nil {
 		log.Fatalf("%s: addr must be host:port", pos(tree, "addr"))
 	}
-	a.a = smtp.PlainAuth("", a.username, password, host)
+	a.a = smtp.PlainAuth("", a.username, password, a.host)
 	a.c, err = smtp.Dial(addr)
 	if err != nil {
 		log.Fatal(err)
@@ -68,26 +72,31 @@ func (a *account) init(tree *toml.TomlTree) {
 		log.Fatalf("%s: %q is not a table", pos(tree, "destinations"), "destinations")
 	}
 
-	var from string
+	a.msg = []byte("From: ")
 	if name == "" {
-		from = a.username
+		a.msg = append(a.msg, a.username...)
 	} else {
-		from = fmt.Sprintf("%s <%s>", name, a.username)
+		a.msg = []byte(fmt.Sprintf("%s <%s>", name, a.username))
 	}
-	for _, tree := range trees {
+	a.msg = append(a.msg, "\r\nContent-Type: text/plain; charset=UTF-8\r\nTo:"...)
+	a.destinations = make([]string, len(trees))
+	for i, tree := range trees {
 		name := optional(tree, "name")
 		email := necessary(tree, "email")
-		var to string
+		a.destinations[i] = email
+		a.msg = append(a.msg, ' ')
 		if name == "" {
-			to = email
+			a.msg = append(a.msg, email...)
 		} else {
-			to = fmt.Sprintf("%s <%s>", name, email)
+			a.msg = append(a.msg, fmt.Sprintf("%s <%s>", name, email)...)
 		}
-		a.destinations = append(a.destinations, &destination{email,
-			[]byte(fmt.Sprintf("From: %s\r\n", from) +
-				fmt.Sprintf("To: %s\r\n", to) +
-				"Subject: ")})
+		if i != len(trees)-1 {
+			a.msg = append(a.msg, ',')
+		}
+		a.msg = append(a.msg, "\r\n"...)
 	}
+	a.msg = append(a.msg, "Subject: "...)
+	a.mlen = len(a.msg)
 
 	v = tree.Get("backup")
 	if v == nil {
@@ -99,11 +108,6 @@ func (a *account) init(tree *toml.TomlTree) {
 	}
 	a.backup = new(account)
 	a.backup.init(tree)
-}
-
-type destination struct {
-	email string
-	msg   []byte
 }
 
 func pos(tree *toml.TomlTree, key string) string {
@@ -134,6 +138,8 @@ func main() {
 		accounts[i] = new(account)
 		accounts[i].init(tree)
 	}
+	log.Printf("%q", accounts[0].msg)
+	return
 
 	s := journal()
 	log.Print("initialized")
@@ -165,13 +171,10 @@ func scanLoop(accounts []*account, s *bufio.Scanner) {
 		subject := fmt.Sprintf("%s failed", unit)
 		wg.Add(len(accounts))
 		for _, a := range accounts {
-			for _, d := range a.destinations {
-				go func(a *account, d *destination) {
-					log.Printf("%s: sending email to %s", a.username, d.email)
-					a.send(subject, out)
-					wg.Done()
-				}(a, d)
-			}
+			go func(a *account) {
+				a.send(subject, out)
+				wg.Done()
+			}(a)
 		}
 		wg.Wait()
 	}
@@ -194,45 +197,46 @@ func journal() *bufio.Scanner {
 }
 
 func (a *account) send(subject string, body []byte) {
-	for _, d := range a.destinations
-	if err := e.sendMail(subject, body); err != nil {
-		log.Printf("error sending to %s: %s", e.Destination, err)
-		if e.Backup != nil {
-			log.Printf("sending to backup of %s: %s", e.Destination, e.Backup.Destination)
-			e.Backup.send(subject, body)
+	log.Printf("%s: sending emails", a.username)
+	if err := a.sendMail(subject, body); err != nil {
+		log.Printf("%s: error: %s", a.username, err)
+		if a.backup != nil {
+			log.Printf("%s: falling back to: %s", a.backup.username)
+			a.backup.send(subject, body)
 		}
 		return
 	}
-	log.Printf("sent email to %s", e.Destination)
+	log.Printf("%s: sent emails to %s", a.username)
 }
 
 func (a *account) sendMail(subject string, body []byte) error {
-	msg := append(e.msg, subject...)
-	msg = append(e.msg, body...)
+	a.msg = append(a.msg, subject...)
+	a.msg = append(a.msg, body...)
 	var ok bool
-	if ok, _ = e.d.Extension("STARTTLS"); ok {
-		if err = c.StartTLS(&tls.Config{ServerName: c.serverName}); err != nil {
+	var err error
+	if ok, _ = a.c.Extension("STARTTLS"); ok {
+		if err = a.c.StartTLS(&tls.Config{ServerName: a.host}); err != nil {
 			return err
 		}
 	}
-	if ok, _ = e.d.Extension("AUTH"); ok && e.a != nil {
-		if err = e.d.Auth(e.a); err != nil {
+	if ok, _ = a.c.Extension("AUTH"); ok && a.a != nil {
+		if err = a.c.Auth(a.a); err != nil {
 			return err
 		}
 	}
-	if err = e.d.Mail(e.Username); err != nil {
+	if err = a.c.Mail(a.username); err != nil {
 		return err
 	}
-	for _, addr := range e.To {
-		if err = e.d.Rcpt(addr); err != nil {
+	for _, addr := range a.destinations {
+		if err = a.c.Rcpt(addr); err != nil {
 			return err
 		}
 	}
-	w, err := e.d.Data()
+	w, err := a.c.Data()
 	if err != nil {
 		return err
 	}
-	_, err = w.Write(msg)
+	_, err = w.Write(a.msg)
+	a.msg = a.msg[:a.mlen]
 	return err
-}
 }
