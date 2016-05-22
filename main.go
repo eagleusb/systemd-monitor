@@ -76,7 +76,6 @@ func scanLoop(accounts []*account, s *bufio.Scanner) {
 		if err != nil && out == nil {
 			log.Print(err)
 		}
-		log.Printf("%q", out)
 		subject := fmt.Sprintf("%s failed", unit)
 		wg.Add(len(accounts))
 		for _, a := range accounts {
