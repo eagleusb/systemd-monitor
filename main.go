@@ -199,15 +199,16 @@ func (a *account) send(subject string, body []byte) {
 	if err := a.sendMail(subject, body); err != nil {
 		log.Printf("%s: error: %s", a.username, err)
 		if a.backup != nil {
-			log.Printf("%s: falling back to: %s", a.backup.username)
+			log.Printf("%s: falling back to: %s", a.username, a.backup.username)
 			a.backup.send(subject, body)
 		}
 		return
 	}
-	log.Printf("%s: sent emails to %s", a.username)
+	log.Printf("%s: sent emails", a.username)
 }
 
 func (a *account) sendMail(subject string, body []byte) error {
+	a.msg = a.msg[:a.mlen]
 	a.msg = append(a.msg, subject...)
 	a.msg = append(a.msg, body...)
 	var ok bool
@@ -235,6 +236,8 @@ func (a *account) sendMail(subject string, body []byte) error {
 		return err
 	}
 	_, err = w.Write(a.msg)
-	a.msg = a.msg[:a.mlen]
-	return err
+	if err != nil {
+		return err
+	}
+	return w.Close()
 }
