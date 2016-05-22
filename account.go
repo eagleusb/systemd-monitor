@@ -40,11 +40,11 @@ func (a *account) init(tree *toml.TomlTree) {
 	}
 	v := tree.Get("destinations")
 	if v == nil {
-		log.Fatalf("%s: no %q table", pos(tree, ""), "destinations")
+		log.Fatalf("%s: no %q table of arrays", pos(tree, ""), "destinations")
 	}
 	trees, ok := v.([]*toml.TomlTree)
 	if !ok {
-		log.Fatalf("%s: %q is not a table", pos(tree, "destinations"), "destinations")
+		log.Fatalf("%s: %q is not a table of arrays", pos(tree, "destinations"), "destinations")
 	}
 
 	a.msg = &message{buf: make([]byte, 0, 3000)}

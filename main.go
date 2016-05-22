@@ -22,7 +22,7 @@ func main() {
 
 	v := tree.Get("accounts")
 	if v == nil {
-		log.Fatalf("%s: no %q, table of arrays", pos(tree, ""), "accounts")
+		log.Fatalf("%s: no %q table of arrays", pos(tree, ""), "accounts")
 	}
 	trees, ok := v.([]*toml.TomlTree)
 	if !ok {
@@ -36,26 +36,13 @@ func main() {
 		accounts[i].init(tree)
 	}
 
-	s := journalTail()
+	s := journal()
 	log.Print("initialized")
 
-	scanLoop(accounts, s)
+	tail(s, accounts)
 }
 
-func journalTail() *bufio.Scanner {
-	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail", "CODE_FUNCTION=unit_notify")
-	w, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = cmd.Start()
-	if err != nil {
-		log.Fatal(err)
-	}
-	return bufio.NewScanner(w)
-}
-
-func scanLoop(accounts []*account, s *bufio.Scanner) {
+func tail(s *bufio.Scanner, accounts []*account) {
 	var wg sync.WaitGroup
 	for s.Scan() {
 		l := s.Text()
@@ -76,7 +63,7 @@ func scanLoop(accounts []*account, s *bufio.Scanner) {
 		if err != nil && out == nil {
 			log.Print(err)
 		}
-		subject := fmt.Sprintf("%s failed", unit)
+		subject := unit + " failed"
 		wg.Add(len(accounts))
 		for _, a := range accounts {
 			go func(a *account) {
@@ -89,4 +76,18 @@ func scanLoop(accounts []*account, s *bufio.Scanner) {
 	if err := s.Err(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func journal() *bufio.Scanner {
+	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail", "CODE_FUNCTION=unit_notify")
+	w, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = cmd.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return bufio.NewScanner(w)
+
 }
