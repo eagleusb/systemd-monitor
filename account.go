@@ -49,7 +49,7 @@ func (a *account) init(tree *toml.TomlTree) {
 
 	a.msg = &message{buf: make([]byte, 0, 3000)}
 	a.msg.write("From: ")
-	a.msg.writeEmail(optional(tree, "name"), a.username)
+	a.msg.writeEmail("systemd", a.username)
 	a.msg.write("\r\nContent-Type: text/plain; charset=UTF-8\r\nTo:")
 	a.destinations = make([]string, len(trees))
 	for i, tree := range trees {
