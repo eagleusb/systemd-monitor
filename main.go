@@ -22,7 +22,7 @@ func main() {
 
 	v := tree.Get("accounts")
 	if v == nil {
-		log.Fatalf("%s: no %q, array of tables", pos(tree, ""), "accounts")
+		log.Fatalf("%s: no %q, table of arrays", pos(tree, ""), "accounts")
 	}
 	trees, ok := v.([]*toml.TomlTree)
 	if !ok {
@@ -36,13 +36,13 @@ func main() {
 		accounts[i].init(tree)
 	}
 
-	s := journal()
+	s := journalTail()
 	log.Print("initialized")
 
 	scanLoop(accounts, s)
 }
 
-func journal() *bufio.Scanner {
+func journalTail() *bufio.Scanner {
 	cmd := exec.Command("journalctl", "-f", "-b", "-q", "--no-tail", "CODE_FUNCTION=unit_notify")
 	w, err := cmd.StdoutPipe()
 	if err != nil {

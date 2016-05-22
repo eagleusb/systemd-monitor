@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/smtp"
@@ -25,52 +24,20 @@ type account struct {
 	backup       *account
 }
 
-func necessary(tree *toml.TomlTree, key string) string {
-	v := tree.Get(key)
-	if v == nil {
-		log.Fatalf("%s: no %q key", pos(tree, ""), key)
-	}
-	s, ok := v.(string)
-	if !ok {
-		log.Fatalf("%s: %q is not a string", pos(tree, key), key)
-	}
-	return s
-}
+func (a *account) init(tree *toml.TomlTree) {
+	a.username = necessary(tree, "username")
+	a.addr = necessary(tree, "addr")
+	password := optional(tree, "password")
 
-func optional(tree *toml.TomlTree, key string) string {
-	s, ok := tree.GetDefault(key, "").(string)
-	if !ok {
-		log.Fatalf("%s: %q is not a string", pos(tree, key), key)
-	}
-	return s
-}
-
-var errTimeout = errors.New("reconnection timeout")
-
-func (a *account) dial() (err error) {
-	if time.Since(a.last) < time.Second*30 {
-		return errTimeout
-	}
-	a.last = time.Now()
-	a.c, err = smtp.Dial(a.addr)
+	var err error
+	a.host, _, err = net.SplitHostPort(a.addr)
 	if err != nil {
-		return err
+		log.Fatalf("%s: addr is not in %q format", pos(tree, "addr"), "host:port")
 	}
-	var ok bool
-	if ok, _ = a.c.Extension("STARTTLS"); ok {
-		if err = a.c.StartTLS(&tls.Config{ServerName: a.host}); err != nil {
-			return err
-		}
+	a.a = smtp.PlainAuth("", a.username, password, a.host)
+	if err = a.dial(); err != nil {
+		log.Print(err)
 	}
-	if ok, _ = a.c.Extension("AUTH"); ok && a.a != nil {
-		if err = a.c.Auth(a.a); err != nil {
-			return err
-		}
-	}
-	return
-}
-
-func (a *account) initMsg(tree *toml.TomlTree) {
 	v := tree.Get("destinations")
 	if v == nil {
 		log.Fatalf("%s: no %q table", pos(tree, ""), "destinations")
@@ -99,29 +66,10 @@ func (a *account) initMsg(tree *toml.TomlTree) {
 	a.msg.write("Subject: ")
 	a.msg.initialized()
 
-}
-
-func (a *account) init(tree *toml.TomlTree) {
-	a.username = necessary(tree, "username")
-	a.addr = necessary(tree, "addr")
-	password := optional(tree, "password")
-
-	var err error
-	a.host, _, err = net.SplitHostPort(a.addr)
-	if err != nil {
-		log.Fatalf("%s: addr must be host:port", pos(tree, "addr"))
-	}
-	a.a = smtp.PlainAuth("", a.username, password, a.host)
-	if err = a.dial(); err != nil {
-		log.Print(err)
-	}
-	a.initMsg(tree)
-
-	v := tree.Get("backup")
+	v = tree.Get("backup")
 	if v == nil {
 		return
 	}
-	var ok bool
 	tree, ok = v.(*toml.TomlTree)
 	if !ok {
 		log.Fatalf("%s: %q is not a table", pos(tree, "backup"), "backup")
@@ -130,9 +78,30 @@ func (a *account) init(tree *toml.TomlTree) {
 	a.backup.init(tree)
 }
 
-func pos(tree *toml.TomlTree, key string) string {
-	p := tree.GetPosition(key)
-	return fmt.Sprintf("pos %dl %dc", p.Line, p.Col)
+var errTimeout = errors.New("reconnection timeout")
+
+func (a *account) dial() (err error) {
+	now := time.Now()
+	if now.Sub(a.last) < time.Second*30 {
+		return errTimeout
+	}
+	a.last = now
+	a.c, err = smtp.Dial(a.addr)
+	if err != nil {
+		return
+	}
+	var ok bool
+	if ok, _ = a.c.Extension("STARTTLS"); ok {
+		if err = a.c.StartTLS(&tls.Config{ServerName: a.host}); err != nil {
+			return
+		}
+	}
+	if ok, _ = a.c.Extension("AUTH"); ok && a.a != nil {
+		if err = a.c.Auth(a.a); err != nil {
+			return
+		}
+	}
+	return
 }
 
 func (a *account) send(subject string, body []byte) {
