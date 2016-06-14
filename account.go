@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/smtp"
 	"time"
@@ -17,8 +16,8 @@ type account struct {
 	username     string
 	host         string
 	addr         string
-	c            *smtp.Client
 	a            smtp.Auth
+	c            *smtp.Client
 	msg          *message
 	destinations []string
 	last         time.Time
@@ -108,27 +107,26 @@ func (a *account) dial() (err error) {
 func (a *account) send(subject string, body []byte) {
 	log.Printf("%s: sending email(s)", a.username)
 	if err := a.mail(subject, body); err != nil {
-		if err == io.EOF {
-			log.Printf("%s: reconnecting", a.username)
-			if err = a.dial(); err == nil {
-				a.send(subject, body)
-				return
-			}
-		}
 		log.Printf("%s: error sending: %s", a.username, err)
+		log.Printf("%s: reconnecting", a.username)
+		if err = a.dial(); err == nil {
+			a.send(subject, body)
+			return
+		}
 		if a.backup != nil {
 			log.Printf("%s: falling back to: %s", a.username, a.backup.username)
-			body = append(body, fmt.Sprintf("\r\nnote: error sending to %s, sending to backup %s instead", a.username, a.backup.username)...)
-			a.backup.send(subject, body)
+			a.backup.send(subject, append(body, fmt.Sprintf("\r\nnote: error sending to %s, sending to backup %s instead", a.username, a.backup.username)...))
 		}
 		return
 	}
 	log.Printf("%s: sent email(s)", a.username)
 }
 
+var errNilClient = errors.New("nil client")
+
 func (a *account) mail(subject string, body []byte) (err error) {
 	if a.c == nil {
-		return io.EOF
+		return errNilClient
 	}
 	defer a.msg.reset()
 	a.msg.write(subject)
