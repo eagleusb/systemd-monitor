@@ -25,6 +25,7 @@ func optional(tree *toml.TomlTree, key string) string {
 	return s
 }
 
+// TODO unnecessary
 func pos(tree *toml.TomlTree, key string) string {
 	p := tree.GetPosition(key)
 	return p.String()

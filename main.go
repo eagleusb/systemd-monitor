@@ -43,8 +43,10 @@ func main() {
 	monitor()
 }
 
-var lf = []byte{'\n'}
-var crlf = []byte{'\r', '\n'}
+var (
+	lf   = []byte{'\n'}
+	crlf = []byte{'\r', '\n'}
+)
 
 func monitor() {
 	conn, err := dbus.New()
